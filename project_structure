@@ -1,0 +1,14 @@
+promptgen/
+├── cmd/
+│   └── examples/          # Example applications
+├── internal/             # Private application and library code
+├── pkg/                 # Public library code
+│   ├── promptgen.go     # Main package code
+│   ├── errors.go        # Error definitions
+│   ├── schema/          # JSON Schema validation
+│   ├── providers/       # AI provider implementations
+│   └── state/           # State management
+├── test/                # Additional test files
+├── go.mod
+├── LICENSE              # Apache 2.0 license
+└── README.md 
