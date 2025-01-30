@@ -1,13 +1,32 @@
+// Package promptgen provides a type-safe framework for building AI-powered applications in Go.
+// It combines Go's template system with JSON Schema validation to ensure reliable AI interactions.
+//
+// Basic usage:
+//
+//	type Input struct {
+//	    Message string
+//	}
+//
+//	type Output struct {
+//	    Response string `json:"response" jsonschema:"required,maxLength=100"`
+//	}
+//
+//	generator := promptgen.Create[Input, Output]("Respond to: {{.Message}}")
+//	result, err := generator.Run(context.Background(), Input{Message: "Hello"})
+//
+// See https://pkg.go.dev/github.com/arjunsriva/promptgen for full documentation.
 package promptgen
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
 	"text/template"
+	"time"
 
 	"github.com/arjunsriva/promptgen/internal/schema"
 	"github.com/arjunsriva/promptgen/provider"
@@ -28,6 +47,7 @@ type Generator[I any, O any] struct {
 	temp      float64
 	maxTokens int
 	hooks     []Hook
+	timeout   time.Duration
 }
 
 var jsonRegex = regexp.MustCompile("```(?:json)?([\\s\\S]*?)```")
@@ -80,7 +100,18 @@ func (g *Generator[I, O]) Run(ctx context.Context, input I) (O, error) {
 	var output O
 
 	if err := g.ensureDefaultConfig(); err != nil {
-		return output, err
+		return output, &Error{
+			Err:     ErrConfiguration,
+			Message: err.Error(),
+			Code:    "config_error",
+		}
+	}
+
+	// Apply default timeout if set
+	if g.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, g.timeout)
+		defer cancel()
 	}
 
 	// Execute template
@@ -115,7 +146,7 @@ Don't put control characters in the wrong place or the JSON will be invalid.`,
 
 	// Call provider
 	if g.provider == nil {
-		return output, fmt.Errorf("no provider configured")
+		return output, ErrNoProvider
 	}
 
 	response, err := g.provider.Complete(ctx, provider.Request{
@@ -125,29 +156,48 @@ Don't put control characters in the wrong place or the JSON will be invalid.`,
 		MaxTokens:   g.maxTokens,
 	})
 
-	// Run after hooks
-	for _, hook := range g.hooks {
-		if response, err = hook.AfterResponse(ctx, response, err); err != nil {
-			return output, fmt.Errorf("hook error: %w", err)
+	// Check for context/timeout errors first
+	if err != nil {
+		switch {
+		case err == context.DeadlineExceeded:
+			return output, ErrTimeout
+		case errors.Is(err, provider.ErrRateLimit):
+			return output, ErrRateLimit
+		case errors.Is(err, provider.ErrContextLength):
+			return output, ErrContextLength
+		default:
+			return output, err
 		}
 	}
 
 	// Extract JSON from markdown code blocks
 	matches := jsonRegex.FindStringSubmatch(response)
 	if len(matches) < 2 {
-		return output, fmt.Errorf("no JSON found in response: %s", response)
+		return output, &Error{
+			Err:     ErrInvalidResponse,
+			Message: fmt.Sprintf("no JSON found in response: %s", response),
+			Code:    "invalid_format",
+		}
 	}
 
 	jsonStr := matches[1]
 
 	// Validate response
 	if err := g.validator.Validate([]byte(jsonStr)); err != nil {
-		return output, fmt.Errorf("invalid response: %w", err)
+		return output, &Error{
+			Err:     ErrValidation,
+			Message: err.Error(),
+			Code:    "validation_failed",
+		}
 	}
 
 	// Parse response into output type
 	if err := json.Unmarshal([]byte(jsonStr), &output); err != nil {
-		return output, fmt.Errorf("failed to parse response: %w", err)
+		return output, &Error{
+			Err:     ErrInvalidResponse,
+			Message: fmt.Sprintf("failed to parse response: %v", err),
+			Code:    "invalid_json",
+		}
 	}
 
 	return output, nil
@@ -197,6 +247,12 @@ func (g *Generator[I, O]) WithMaxTokens(tokens int) *Generator[I, O] {
 // WithHook adds a hook to the generator
 func (g *Generator[I, O]) WithHook(hook Hook) *Generator[I, O] {
 	g.hooks = append(g.hooks, hook)
+	return g
+}
+
+// WithTimeout sets a default timeout for requests
+func (g *Generator[I, O]) WithTimeout(timeout time.Duration) *Generator[I, O] {
+	g.timeout = timeout
 	return g
 }
 

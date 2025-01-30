@@ -152,7 +152,7 @@ for {
 }
 ```
 
-### Thread-Safe State Management
+### Thread-Safe State Management (WIP)
 
 Built-in conversation memory with customizable storage:
 
@@ -169,18 +169,20 @@ chat := promptgen.Create[ChatInput, string]("{message}").
     WithState(&RedisState{client: redisClient})
 ```
 
-### Provider Agnostic
+### Provider Agnostic 
 
 Switch between AI providers with a single line:
+Custom provider support. 
+
 
 ```go
 // OpenAI
 generator.WithModel("gpt-4")
 
-// Anthropic
+// Anthropic (TODO)
 generator.WithModel("claude-3-opus-20240229")
 
-// Local
+// Local (TODO)
 generator.WithModel("local/mistral-7b")
 ```
 
@@ -227,21 +229,13 @@ generator := promptgen.Create[Input, Output](prompt).
 
 ## Authentication
 
-Multiple ways to handle authentication:
+Simple default but overridable authentication:
 
 ```go
 // 1. Environment variables (recommended)
 export OPENAI_API_KEY=sk-...
 export ANTHROPIC_API_KEY=sk-ant-...
 
-// 2. Direct configuration
-generator.WithAuth(promptgen.Auth{
-    Provider: promptgen.OpenAI,
-    APIKey:   "sk-...",
-})
-
-// 3. Configuration file
-generator.WithConfigFile("config.yaml")
 ```
 
 ## Contributing

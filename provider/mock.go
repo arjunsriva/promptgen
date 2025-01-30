@@ -14,7 +14,7 @@ type MockProvider struct {
 	DelayMs      int       // Optional delay to simulate network latency
 }
 
-func (m *MockProvider) Complete(_ context.Context, req Request) (string, error) {
+func (m *MockProvider) Complete(ctx context.Context, req Request) (string, error) {
 	m.Requests = append(m.Requests, req)
 
 	if len(m.Errors) > 0 {
@@ -22,13 +22,17 @@ func (m *MockProvider) Complete(_ context.Context, req Request) (string, error) 
 	}
 
 	if m.DelayMs > 0 {
-		time.Sleep(time.Duration(m.DelayMs) * time.Millisecond)
+		select {
+		case <-time.After(time.Duration(m.DelayMs) * time.Millisecond):
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
 	}
 
 	return m.Response, nil
 }
 
-func (m *MockProvider) Stream(_ context.Context, req Request) (<-chan string, <-chan error, error) {
+func (m *MockProvider) Stream(ctx context.Context, req Request) (<-chan string, <-chan error, error) {
 	m.Requests = append(m.Requests, req)
 
 	contentChan := make(chan string)
@@ -45,11 +49,21 @@ func (m *MockProvider) Stream(_ context.Context, req Request) (<-chan string, <-
 		// Send all tokens
 		for _, token := range m.StreamTokens {
 			if m.DelayMs > 0 {
-				time.Sleep(time.Duration(m.DelayMs) * time.Millisecond)
+				select {
+				case <-time.After(time.Duration(m.DelayMs) * time.Millisecond):
+				case <-ctx.Done():
+					errChan <- ctx.Err()
+					return
+				}
 			}
-			contentChan <- token
+			
+			select {
+			case contentChan <- token:
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+			}
 		}
-		// Stream is complete after sending all tokens
 	}()
 
 	return contentChan, errChan, nil

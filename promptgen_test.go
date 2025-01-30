@@ -2,7 +2,7 @@ package promptgen
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -169,34 +169,57 @@ func TestGeneratorWithProvider(t *testing.T) {
 		name        string
 		input       ChatInput
 		mockResp    string
+		wantResp    string
 		wantErr     bool
 		errContains string
+		errIs       error
 	}{
 		{
-			name: "valid response",
+			name: "valid markdown json response",
 			input: ChatInput{
 				Message: "Hello!",
 			},
-			mockResp: `{"response": "Hi there! How can I help you today?"}`,
+			mockResp: "Here's my response:\n```json\n{\"response\": \"Hi there!\"}\n```",
+			wantResp: "Hi there!",
 			wantErr:  false,
 		},
 		{
-			name: "invalid json response",
+			name: "valid markdown response without json tag",
 			input: ChatInput{
 				Message: "Hello!",
 			},
-			mockResp:    `not a json response`,
+			mockResp: "Let me think...\n```\n{\"response\": \"Hi there!\"}\n```",
+			wantResp: "Hi there!",
+			wantErr:  false,
+		},
+		{
+			name: "missing markdown blocks",
+			input: ChatInput{
+				Message: "Hello!",
+			},
+			mockResp:    "{\"response\": \"Hi there!\"}",
 			wantErr:     true,
-			errContains: "invalid response",
+			errContains: "no JSON found in response",
+		},
+		{
+			name: "invalid json inside markdown",
+			input: ChatInput{
+				Message: "Hello!",
+			},
+			mockResp:    "```json\nnot a json response\n```",
+			wantErr:     true,
+			errIs:       ErrValidation,
+			errContains: "validation failed",
 		},
 		{
 			name: "response too long",
 			input: ChatInput{
 				Message: "Hello!",
 			},
-			mockResp:    `{"response": "This response is way too long and exceeds the maximum length of 100 characters that we specified in the JSON Schema validation rules"}`,
-			wantErr:     true,
-			errContains: "validation errors",
+			mockResp: "```json\n{\"response\": \"This response is way too long and exceeds the maximum length of 100 characters that we specified in the JSON Schema validation rules\"}\n```",
+			wantErr:  true,
+			errIs:    ErrValidation,
+			errContains: "validation errors: response: String length must be less than or equal to 100",
 		},
 	}
 
@@ -232,8 +255,13 @@ func TestGeneratorWithProvider(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
-				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
-					t.Errorf("error %q should contain %q", err.Error(), tt.errContains)
+				} else {
+					if tt.errIs != nil && !errors.Is(err, tt.errIs) {
+						t.Errorf("expected error type %v, got %v", tt.errIs, err)
+					}
+					if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+						t.Errorf("error %q should contain %q", err.Error(), tt.errContains)
+					}
 				}
 				return
 			}
@@ -243,14 +271,9 @@ func TestGeneratorWithProvider(t *testing.T) {
 				return
 			}
 
-			// Verify output
-			var expected ChatOutput
-			if err := json.Unmarshal([]byte(tt.mockResp), &expected); err != nil {
-				t.Fatalf("failed to parse expected output: %v", err)
-			}
-
-			if output.Response != expected.Response {
-				t.Errorf("response\nwant: %q\ngot:  %q", expected.Response, output.Response)
+			// Verify output matches expected response
+			if output.Response != tt.wantResp {
+				t.Errorf("response\nwant: %q\ngot:  %q", tt.wantResp, output.Response)
 			}
 		})
 	}
@@ -303,5 +326,119 @@ func TestStreamingWithProvider(t *testing.T) {
 		// Success
 	case <-ctx.Done():
 		t.Error("stream timeout")
+	}
+}
+
+func TestConcurrentUsage(t *testing.T) {
+	gen, err := Create[TestInput, TestOutput]("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mock := &provider.MockProvider{
+		Response: "```json\n{\"response\": \"concurrent test\"}\n```",
+	}
+	gen.WithProvider(mock)
+
+	const goroutines = 10
+	errChan := make(chan error, goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			_, err := gen.Run(context.Background(), TestInput{})
+			errChan <- err
+		}()
+	}
+
+	for i := 0; i < goroutines; i++ {
+		if err := <-errChan; err != nil {
+			t.Errorf("concurrent request failed: %v", err)
+		}
+	}
+}
+
+// Add new test for timeout functionality
+func TestGeneratorTimeout(t *testing.T) {
+	gen, err := Create[TestInput, TestOutput]("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a mock provider that delays
+	mock := &provider.MockProvider{
+		Response: "```json\n{\"response\": \"delayed response\"}\n```",
+		DelayMs:  500, // Increase delay to 500ms to ensure timeout
+	}
+
+	gen.WithProvider(mock).
+		WithTimeout(100 * time.Millisecond) // Keep timeout at 100ms
+
+	ctx := context.Background() // Create a fresh context
+	_, err = gen.Run(ctx, TestInput{})
+	
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+	
+	if !errors.Is(err, ErrTimeout) {
+		t.Errorf("expected timeout error, got: %v", err)
+	}
+}
+
+// Add test for regex extraction
+func TestJSONExtraction(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+		want     string
+		wantErr  bool
+	}{
+		{
+			name:     "simple json block",
+			response: "```json\n{\"test\": \"value\"}\n```",
+			want:     "\n{\"test\": \"value\"}\n",
+			wantErr:  false,
+		},
+		{
+			name:     "json block with thinking",
+			response: "Let me think about it...\n```json\n{\"test\": \"value\"}\n```",
+			want:     "\n{\"test\": \"value\"}\n",
+			wantErr:  false,
+		},
+		{
+			name:     "json block without json tag",
+			response: "```\n{\"test\": \"value\"}\n```",
+			want:     "\n{\"test\": \"value\"}\n",
+			wantErr:  false,
+		},
+		{
+			name:     "missing json block",
+			response: "{\"test\": \"value\"}",
+			wantErr:  true,
+		},
+		{
+			name:     "multiple json blocks",
+			response: "```json\n{\"first\": true}\n```\n```json\n{\"second\": true}\n```",
+			want:     "\n{\"first\": true}\n",
+			wantErr:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			matches := jsonRegex.FindStringSubmatch(tt.response)
+			if tt.wantErr {
+				if len(matches) >= 2 {
+					t.Error("expected no match, got one")
+				}
+				return
+			}
+			if len(matches) < 2 {
+				t.Fatal("expected match, got none")
+			}
+			if got := matches[1]; got != tt.want {
+				t.Errorf("extracted JSON\nwant: %q\ngot:  %q", tt.want, got)
+			}
+		})
 	}
 }

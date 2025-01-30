@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -67,9 +68,9 @@ func main() {
 	copy, err := GenerateProductCopy.Run(context.Background(), input)
 	if err != nil {
 		switch {
-		case promptgen.IsRateLimit(err):
+		case errors.Is(err, promptgen.ErrRateLimit):
 			log.Fatal("Rate limit exceeded, please try again later")
-		case promptgen.IsContextLength(err):
+		case errors.Is(err, promptgen.ErrContextLength):
 			log.Fatal("Input too long, please reduce the content")
 		default:
 			log.Fatalf("Failed to generate copy: %v", err)
