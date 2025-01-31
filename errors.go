@@ -9,11 +9,11 @@ import (
 var (
 	ErrNoProvider      = errors.New("no provider configured")
 	ErrInvalidResponse = errors.New("invalid response from provider")
-	ErrValidation     = errors.New("validation failed")
-	ErrConfiguration  = errors.New("invalid configuration")
-	ErrTimeout        = errors.New("request timeout")
-	ErrRateLimit     = errors.New("rate limit exceeded")
-	ErrContextLength = errors.New("context length exceeded")
+	ErrValidation      = errors.New("validation failed")
+	ErrConfiguration   = errors.New("invalid configuration")
+	ErrTimeout         = errors.New("request timeout")
+	ErrRateLimit       = errors.New("rate limit exceeded")
+	ErrContextLength   = errors.New("context length exceeded")
 )
 
 // Error wraps provider errors with additional context

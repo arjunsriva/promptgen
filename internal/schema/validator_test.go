@@ -328,16 +328,3 @@ func TestValidationFeatures(t *testing.T) {
 		})
 	}
 }
-
-// Helper function to compare JSON objects
-func jsonEqual(a, b interface{}) bool {
-	aJSON, err := json.Marshal(a)
-	if err != nil {
-		return false
-	}
-	bJSON, err := json.Marshal(b)
-	if err != nil {
-		return false
-	}
-	return string(aJSON) == string(bJSON)
-}

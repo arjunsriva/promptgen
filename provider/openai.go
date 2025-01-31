@@ -58,7 +58,7 @@ func (o *OpenAI) Complete(ctx context.Context, req Request) (string, error) {
 }
 
 // Stream generates a completion and streams the response using OpenAI's API
-func (o *OpenAI) Stream(ctx context.Context, req Request) (<-chan string, <-chan error, error) {
+func (o *OpenAI) Stream(ctx context.Context, req Request) (contentChan <-chan string, errChan <-chan error, err error) {
 	stream, err := o.client.CreateChatCompletionStream(
 		ctx,
 		openai.ChatCompletionRequest{
@@ -69,34 +69,35 @@ func (o *OpenAI) Stream(ctx context.Context, req Request) (<-chan string, <-chan
 					Content: req.Prompt,
 				},
 			},
-			Temperature: float32(req.Temperature),
-			MaxTokens:   req.MaxTokens,
 		},
 	)
-
 	if err != nil {
 		return nil, nil, fmt.Errorf("openai stream failed: %w", err)
 	}
 
-	contentChan := make(chan string)
-	errChan := make(chan error)
+	content := make(chan string)
+	errs := make(chan error)
+	contentChan = content
+	errChan = errs
 
 	go func() {
 		defer stream.Close()
-		defer close(contentChan)
-		defer close(errChan)
+		defer close(content)
+		defer close(errs)
 
 		for {
 			response, err := stream.Recv()
-			if err != nil {
-				if err == io.EOF {
-					// Stream completed normally
-					return
-				}
-				errChan <- fmt.Errorf("stream receive failed: %w", err)
+			if errors.Is(err, io.EOF) {
 				return
 			}
-			contentChan <- response.Choices[0].Delta.Content
+			if err != nil {
+				errs <- fmt.Errorf("stream receive failed: %w", err)
+				return
+			}
+
+			if len(response.Choices) > 0 {
+				content <- response.Choices[0].Delta.Content
+			}
 		}
 	}()
 

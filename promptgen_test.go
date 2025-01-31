@@ -216,9 +216,9 @@ func TestGeneratorWithProvider(t *testing.T) {
 			input: ChatInput{
 				Message: "Hello!",
 			},
-			mockResp: "```json\n{\"response\": \"This response is way too long and exceeds the maximum length of 100 characters that we specified in the JSON Schema validation rules\"}\n```",
-			wantErr:  true,
-			errIs:    ErrValidation,
+			mockResp:    "```json\n{\"response\": \"This response is way too long and exceeds the maximum length of 100 characters that we specified in the JSON Schema validation rules\"}\n```",
+			wantErr:     true,
+			errIs:       ErrValidation,
 			errContains: "validation errors: response: String length must be less than or equal to 100",
 		},
 	}
@@ -308,12 +308,12 @@ func TestStreamingWithProvider(t *testing.T) {
 		t.Fatalf("Stream failed: %v", err)
 	}
 
-	var received []string
+	want := []string{"Hello", " ", "world", "!"}
+	received := make([]string, 0, len(want))
 	for token := range stream.Content {
 		received = append(received, token)
 	}
 
-	want := []string{"Hello", " ", "world", "!"}
 	if !reflect.DeepEqual(received, want) {
 		t.Errorf("received tokens\nwant: %v\ngot:  %v", want, received)
 	}
@@ -335,10 +335,16 @@ func TestConcurrentUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Configure the generator before running concurrent tests
 	mock := &provider.MockProvider{
 		Response: "```json\n{\"response\": \"concurrent test\"}\n```",
 	}
-	gen.WithProvider(mock)
+
+	// Pre-configure all settings to avoid race conditions during configuration
+	gen.WithProvider(mock).
+		WithModel("test-model").
+		WithTemperature(0.7).
+		WithMaxTokens(100)
 
 	const goroutines = 10
 	errChan := make(chan error, goroutines)
@@ -375,11 +381,11 @@ func TestGeneratorTimeout(t *testing.T) {
 
 	ctx := context.Background() // Create a fresh context
 	_, err = gen.Run(ctx, TestInput{})
-	
+
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
 	}
-	
+
 	if !errors.Is(err, ErrTimeout) {
 		t.Errorf("expected timeout error, got: %v", err)
 	}

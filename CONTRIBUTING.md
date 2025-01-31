@@ -31,4 +31,48 @@ By participating in this project, you agree to abide by the code of conduct prin
    export OPENAI_API_KEY=your-api-key
    ```
 
+## Pre-commit Hooks
 
+We use pre-commit hooks to ensure code quality. To set them up:
+
+1. Install pre-commit:
+   ```bash
+   # macOS
+   brew install pre-commit
+
+   # Linux
+   pip install pre-commit
+
+   # Windows
+   pip install pre-commit
+   ```
+
+2. Install golangci-lint:
+   ```bash
+   # macOS
+   brew install golangci-lint
+
+   # Windows & Linux
+   # See: https://golangci-lint.run/usage/install/#local-installation
+   ```
+
+3. Set up the pre-commit hooks:
+   ```bash
+   pre-commit install
+   ```
+
+4. (Optional) Run against all files:
+   ```bash
+   pre-commit run --all-files
+   ```
+
+The pre-commit hooks will now run automatically on `git commit`. They include:
+- Code formatting (gofmt)
+- Import organization (goimports)
+- Linting (golangci-lint)
+- Unit tests
+- Build verification
+- Test coverage checks
+- And more...
+
+If any checks fail, the commit will be aborted. Fix the issues and try committing again.
