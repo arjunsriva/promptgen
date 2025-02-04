@@ -5,37 +5,67 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/sashabaranov/go-openai"
 )
 
+// OpenAIConfig holds configuration for the OpenAI provider
+type OpenAIConfig struct {
+	APIKey      string
+	Model       string
+	Temperature float64
+	MaxTokens   int
+}
+
 // OpenAI implements the Provider interface using OpenAI's API
 type OpenAI struct {
 	client *openai.Client
+	config OpenAIConfig
 }
 
-// NewOpenAI creates a new OpenAI provider with the given API key
-func NewOpenAI(apiKey string) *OpenAI {
-	return &OpenAI{
-		client: openai.NewClient(apiKey),
+// DefaultOpenAI creates a new OpenAI provider with default configuration
+func DefaultOpenAI() (*OpenAI, error) {
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("OPENAI_API_KEY environment variable is required")
 	}
+
+	return NewOpenAI(OpenAIConfig{
+		APIKey:      apiKey,
+		Model:       "gpt-4-turbo-preview",
+		Temperature: 0.7,
+		MaxTokens:   2000,
+	})
 }
 
-// Complete generates a completion for the given request using OpenAI's API
-func (o *OpenAI) Complete(ctx context.Context, req Request) (string, error) {
+// NewOpenAI creates a new OpenAI provider with the given configuration
+func NewOpenAI(config OpenAIConfig) (*OpenAI, error) {
+	if config.APIKey == "" {
+		return nil, fmt.Errorf("API key is required")
+	}
+
+	return &OpenAI{
+		client: openai.NewClient(config.APIKey),
+		config: config,
+	}, nil
+}
+
+// Complete generates a completion for the given prompt using OpenAI's API
+func (o *OpenAI) Complete(ctx context.Context, prompt string) (string, error) {
 	resp, err := o.client.CreateChatCompletion(
 		ctx,
 		openai.ChatCompletionRequest{
-			Model: req.Model,
+			Model: o.config.Model,
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleUser,
-					Content: req.Prompt,
+					Content: prompt,
 				},
 			},
-			Temperature: float32(req.Temperature),
-			MaxTokens:   req.MaxTokens,
+			Temperature: float32(o.config.Temperature),
+			MaxTokens:   o.config.MaxTokens,
 		},
 	)
 
@@ -58,17 +88,19 @@ func (o *OpenAI) Complete(ctx context.Context, req Request) (string, error) {
 }
 
 // Stream generates a completion and streams the response using OpenAI's API
-func (o *OpenAI) Stream(ctx context.Context, req Request) (contentChan <-chan string, errChan <-chan error, err error) {
+func (o *OpenAI) Stream(ctx context.Context, prompt string) (contentChan <-chan string, errChan <-chan error, err error) {
 	stream, err := o.client.CreateChatCompletionStream(
 		ctx,
 		openai.ChatCompletionRequest{
-			Model: req.Model,
+			Model: o.config.Model,
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleUser,
-					Content: req.Prompt,
+					Content: prompt,
 				},
 			},
+			Temperature: float32(o.config.Temperature),
+			MaxTokens:   o.config.MaxTokens,
 		},
 	)
 	if err != nil {
@@ -77,8 +109,6 @@ func (o *OpenAI) Stream(ctx context.Context, req Request) (contentChan <-chan st
 
 	content := make(chan string)
 	errs := make(chan error)
-	contentChan = content
-	errChan = errs
 
 	go func() {
 		defer stream.Close()
@@ -101,5 +131,5 @@ func (o *OpenAI) Stream(ctx context.Context, req Request) (contentChan <-chan st
 		}
 	}()
 
-	return contentChan, errChan, nil
+	return content, errs, nil
 }

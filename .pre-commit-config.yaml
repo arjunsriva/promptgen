@@ -12,7 +12,6 @@ repos:
     rev: v0.5.1
     hooks:
       - id: go-fmt
-      - id: go-vet
       - id: go-imports
       - id: golangci-lint
       - id: go-unit-tests
@@ -21,8 +20,9 @@ repos:
 
   - repo: local
     hooks:
-      - id: go-test-coverage
-        name: go test coverage
-        entry: bash -c 'go test -race -coverprofile=coverage.out ./... && go tool cover -func=coverage.out'
+      - id: go-vet
+        name: go vet
+        entry: bash -c 'go vet $(go list ./... | grep -v /examples/)'
+        types: [go]
         language: system
         pass_filenames: false

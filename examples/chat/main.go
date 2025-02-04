@@ -32,17 +32,16 @@ func main() {
         {{range .History}}
         {{.Role}}: {{.Content}}
         {{end}}
-        
+
         User: {{.Query}}
-        
+
         Respond naturally while detecting the intent and key topics.
     `)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	chat.WithTimeout(10 * time.Second).
-		WithTemperature(0.7)
+	chat.WithTimeout(10 * time.Second)
 
 	resp, err := chat.Run(context.Background(), ChatInput{
 		Query: "What's the weather like?",
