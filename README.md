@@ -4,18 +4,16 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/arjunsriva/promptgen)](https://github.com/arjunsriva/promptgen)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
+Build production-ready AI applications in Go with type safety and ease.
 
-### Build production-ready AI applications in Go with type safety and ease.
+## Features
 
-Promptgen makes building AI-powered applications in Go productive and enjoyable, while maintaining type safety and performance. It combines Go's strengths with an elegant API that just works.
-
-### At a glance
-
-- 🎯 Type-safe inputs and outputs with Go templates and JSON Schema
-- 🔄 Context-aware streaming with Go channels
-- 💾 Thread-safe state management
-- 🔌 Provider agnostic - switch AI models with a single line
-- ⚡️ Production-ready with proper error handling
+- 🎯 Type-safe inputs and outputs with Go generics and JSON Schema validation
+- 🔄 Real-time streaming with Go channels
+- 🪝 Extensible hook system for pre/post processing
+- ⛓️ Support for chaining operations
+- 🔌 Provider agnostic with built-in OpenAI support
+- 🧪 Comprehensive testing utilities with mock provider
 
 ## Installation
 
@@ -23,127 +21,67 @@ Promptgen makes building AI-powered applications in Go productive and enjoyable,
 go get github.com/arjunsriva/promptgen
 ```
 
-## Quick Examples
+## Quick Start
 
-### Product Copy Generation
+### Simple Types
 
-Generate SEO-optimized product titles and descriptions with proper constraints:
+Work directly with Go's basic types:
+
+```go
+// String generation
+stringGen, _ := promptgen.Create[string, string]("Tell me a {{.}} joke")
+joke, _ := stringGen.Run(ctx, "Dad")
+
+// Integer estimation
+intGen, _ := promptgen.Create[string, int]("Guess the age: {{.}}")
+age, _ := intGen.Run(ctx, "college professor with grey hair")
+
+// Float conversion
+floatGen, _ := promptgen.Create[float64, float64]("Convert {{.}} Fahrenheit to Celsius")
+celsius, _ := floatGen.Run(ctx, 98.6)
+```
+
+### Structured Data
+
+Define type-safe inputs and outputs with JSON Schema validation:
 
 ```go
 type ProductInput struct {
-    Name         string   `json:"name"`
-    Category     string   `json:"category"`
-    MainFeatures []string `json:"main_features"`
+    Name     string   `json:"name"`
+    Features []string `json:"features"`
 }
 
 type ProductCopy struct {
-    Title       string `json:"title" jsonschema:"required,maxLength=60,description=SEO title length"`
-    Description string `json:"description" jsonschema:"required,minLength=50,maxLength=160,description=Meta description length"`
+    Title       string `json:"title" jsonschema:"required,maxLength=60"`
+    Description string `json:"description" jsonschema:"required,maxLength=160"`
 }
 
-copy := promptgen.Create[ProductInput, ProductCopy](
-    `Create a product title and description for {{.Name}} in the {{.Category}} category.
-     Key features:
-     {{range .MainFeatures}}- {{.}}
-     {{end}}`)
+generator, _ := promptgen.Create[ProductInput, ProductCopy](`
+    Write product copy for {{.Name}}.
+    Features:
+    {{range .Features}}- {{.}}
+    {{end}}
+`)
 
-result, err := copy.Run(context.Background(), ProductInput{
-    Name:     "Ultra Comfort Ergonomic Chair",
-    Category: "Office Furniture",
-    MainFeatures: []string{
-        "Adjustable lumbar support",
-        "4D armrests",
-        "Breathable mesh back",
-    },
+result, err := generator.Run(ctx, ProductInput{
+    Name: "Ergonomic Chair",
+    Features: []string{"Adjustable height", "Lumbar support"},
 })
 ```
-
-### Review Summary
-
-Demonstrate conditional templates and enumerated outputs:
-
-```go
-type ReviewInput struct {
-    Content    string `json:"content"`
-    MaxLength  int    `json:"max_length"`
-}
-
-type ReviewSummary struct {
-    Summary    string `json:"summary" jsonschema:"required,maxLength=150"`
-    Sentiment  string `json:"sentiment" jsonschema:"required,enum=positive,enum=negative,enum=neutral"`
-}
-
-summarize := promptgen.Create[ReviewInput, ReviewSummary](
-    `Summarize this review:
-     {{.Content}}
-     {{if .MaxLength}}Keep the summary under {{.MaxLength}} characters.{{end}}`)
-
-result, err := summarize.Run(context.Background(), ReviewInput{
-    Content:   "Long customer review text...",
-    MaxLength: 100,
-})
-```
-
-## Core Features
-
-### Type-Safe Templates
-
-Promptgen uses Go's built-in text/template for prompt creation:
-
-- Full access to template features:
-  - Conditionals: `{{if .Condition}}...{{end}}`
-  - Loops: `{{range .Items}}...{{end}}`
-  - Built-in functions: `{{.Text | lower}}`
-- Compile-time checking of template syntax
-- Type-safe access to input fields
-
-### JSON Schema Validation
-
-Promptgen uses struct tags to define validation rules for AI outputs:
-
-```go
-type Output struct {
-    // String validations
-    Title       string `json:"title" jsonschema:"required,minLength=3,maxLength=60,pattern=^[A-Za-z].*"`
-    
-    // Numeric validations
-    Score       float64 `json:"score" jsonschema:"minimum=0,maximum=100,multipleOf=0.5"`
-    
-    // Array validations
-    Tags        []string `json:"tags" jsonschema:"minItems=1,maxItems=10,uniqueItems=true"`
-    
-    // Enum validation
-    Status      string   `json:"status" jsonschema:"enum=pending,enum=active,enum=completed"`
-    
-    // Optional fields
-    Metadata    map[string]string `json:"metadata,omitempty" jsonschema:"additionalProperties=true"`
-}
-```
-
-Available validations:
-- Strings: `minLength`, `maxLength`, `pattern`
-- Numbers: `minimum`, `maximum`, `multipleOf`
-- Arrays: `minItems`, `maxItems`, `uniqueItems`
-- Objects: `required`, `additionalProperties`
-- Enums: multiple `enum=value` tags
-- Common: `description` for documentation
 
 ### Real-Time Streaming
 
-Use Go's channels for efficient stream processing:
+Process responses in real-time using Go channels:
 
 ```go
-stream, err := generator.Stream(ctx, input)
-if err != nil {
-    panic(err)
-}
+stream, _ := generator.Stream(ctx, input)
 
 for {
     select {
     case chunk := <-stream.Content:
         fmt.Print(chunk)
     case err := <-stream.Err:
-        panic(err)
+        handleError(err)
     case <-stream.Done:
         return
     case <-ctx.Done():
@@ -152,99 +90,112 @@ for {
 }
 ```
 
-### Thread-Safe State Management (WIP)
+### Operation Chaining
 
-Built-in conversation memory with customizable storage:
-
-```go
-type RedisState struct {
-    client *redis.Client
-}
-
-func (r *RedisState) Store(ctx context.Context) promptgen.StateStore[[]byte] {
-    return &RedisStore{client: r.client}
-}
-
-chat := promptgen.Create[ChatInput, string]("{message}").
-    WithState(&RedisState{client: redisClient})
-```
-
-### Provider Agnostic 
-
-Switch between AI providers with a single line:
-Custom provider support. 
-
+Build complex workflows by chaining operations:
 
 ```go
-// OpenAI
-generator.WithModel("gpt-4")
+// Define chain of operations
+var (
+    classifyQuery, _ = promptgen.Create[Query, Classification](
+        "Classify this query: {{.Text}}")
 
-// Anthropic (TODO)
-generator.WithModel("claude-3-opus-20240229")
+    generateResponse, _ = promptgen.Create[Classification, Response](
+        "Generate response for {{.Category}} query")
+)
 
-// Local (TODO)
-generator.WithModel("local/mistral-7b")
+// Execute chain
+classification, _ := classifyQuery.Run(ctx, query)
+response, _ := generateResponse.Run(ctx, classification)
 ```
 
-## Best Practices
+### Hook System
 
-### Error Handling
+Add pre/post processing hooks for logging, metrics, or transformations:
+
+```go
+type LoggingHook struct {
+    logger *log.Logger
+}
+
+func (h *LoggingHook) BeforeRequest(ctx context.Context, prompt string) (string, error) {
+    h.logger.Printf("Sending prompt: %s", prompt)
+    return prompt, nil
+}
+
+func (h *LoggingHook) AfterResponse(ctx context.Context, response string, err error) (string, error) {
+    h.logger.Printf("Got response: %s", response)
+    return response, err
+}
+
+generator.WithHook(&LoggingHook{logger: log.Default()})
+```
+
+### Provider Interface
+
+Switch between providers or implement your own:
+
+```go
+// Use OpenAI
+generator.WithProvider(provider.NewOpenAI(provider.OpenAIConfig{
+    Model: "gpt-4",
+    Temperature: 0.7,
+}))
+
+// Use mock provider for testing
+generator.WithProvider(&provider.MockProvider{
+    Response: "mocked response",
+})
+```
+
+## Advanced Examples
+
+Check out the [examples](./examples) directory for more complex use cases:
+
+- [Chain Operations](./examples/chain/main.go) - Sequential processing
+- [Support Routing](./examples/route/main.go) - Query classification and routing
+- [Parallel Processing](./examples/parallel/main.go) - Concurrent operations
+- [Content Evaluation](./examples/eval/main.go) - Content moderation
+- [Translation](./examples/translate/main.go) - Language translation
+
+## Error Handling
 
 ```go
 result, err := generator.Run(ctx, input)
 if err != nil {
     switch {
-    case promptgen.IsRateLimit(err):
+    case errors.Is(err, promptgen.ErrRateLimit):
         // Handle rate limiting
-    case promptgen.IsContextTooLong(err):
+    case errors.Is(err, promptgen.ErrContextLength):
         // Handle context length
-    case promptgen.IsInvalidRequest(err):
-        // Handle invalid inputs
+    case errors.Is(err, promptgen.ErrValidation):
+        // Handle validation errors
     default:
         // Handle other errors
     }
 }
 ```
 
-### Resource Management
+## Testing
+
+Use the mock provider for reliable testing:
 
 ```go
-// Always use contexts for cancellation
-ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-defer cancel()
+mockProvider := &provider.MockProvider{
+    Response: `{"title": "Test Title", "description": "Test Description"}`,
+}
 
-// Clean up resources
-defer stream.Close()
-```
-
-### Configuration
-
-```go
-generator := promptgen.Create[Input, Output](prompt).
-    WithModel("gpt-4").
-    WithTemperature(0.7).
-    WithMaxTokens(1000).
-    WithRetry(retry.Exponential(3))
-```
-
-## Authentication
-
-Simple default but overridable authentication:
-
-```go
-// 1. Environment variables (recommended)
-export OPENAI_API_KEY=sk-...
-export ANTHROPIC_API_KEY=sk-ant-...
-
+generator.WithProvider(mockProvider)
+result, err := generator.Run(ctx, input)
 ```
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md)
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup and guidelines.
 
 ## License
 
-Apache 2.0 - See [LICENSE](./LICENSE) for more details.
+Apache 2.0 - See [LICENSE](./LICENSE) for details.
 
 ## Acknowledgments
 
