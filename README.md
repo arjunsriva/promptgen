@@ -197,6 +197,34 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup and guidelines.
 
 Apache 2.0 - See [LICENSE](./LICENSE) for details.
 
+## OpenTelemetry Tracing
+
+This project uses OpenTelemetry to provide tracing for requests made to AI providers.
+Currently, only the OpenAI provider is instrumented.
+
+**Enabling Tracing:**
+- Tracing is initialized automatically if you use the `tracing.NewTracerProvider()` function from the `github.com/arjunsriva/promptgen/tracing` package at the start of your application.
+- Ensure you also defer `tracing.Shutdown(context.Background(), tracerProvider)` to properly flush traces.
+
+**Exporter Configuration:**
+- By default, a `stdout` exporter is used, which prints traces to the console. This is useful for development and debugging.
+- To use other exporters (e.g., Jaeger, Zipkin, OTLP), you will need to modify the `tracing/tracing.go` file to initialize your preferred exporter.
+
+**Collected Attributes:**
+- Spans for provider calls (e.g., `OpenAI.Complete`, `OpenAI.Stream`) will include the following attributes:
+    - `llm.provider`: The name of the provider (e.g., "OpenAI").
+    - `llm.model_name`: The model being used.
+    - `llm.temperature`: The configured temperature.
+    - `llm.max_tokens`: The configured max tokens.
+    - For `OpenAI.Complete` calls, token usage is also included:
+        - `llm.usage.prompt_tokens`
+        - `llm.usage.completion_tokens`
+        - `llm.usage.total_tokens`
+
+**Viewing Traces:**
+- With the default `stdout` exporter, traces will appear in your application's standard output.
+- If you configure a different exporter, refer to the documentation for that system on how to view traces (e.g., Jaeger UI).
+
 ## Acknowledgments
 
 This project was inspired by [promptic](https://github.com/knowsuchagency/promptic), which showed how productive AI development could be in Python. I've built on that vision to create an idiomatic, type-safe Go experience.

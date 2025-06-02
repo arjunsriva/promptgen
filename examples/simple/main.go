@@ -7,9 +7,20 @@ import (
 	"log"
 
 	"github.com/arjunsriva/promptgen"
+	"github.com/arjunsriva/promptgen/tracing"
 )
 
 func main() {
+	tp, err := tracing.NewTracerProvider()
+	if err != nil {
+		log.Fatalf("Failed to initialize tracer provider: %v", err)
+	}
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			log.Printf("Failed to shutdown tracer provider: %v", err)
+		}
+	}()
+
 	ctx := context.Background()
 
 	// Example 1: String type - Joke generator
