@@ -7,23 +7,19 @@ import (
 	"log"
 
 	"github.com/arjunsriva/promptgen"
-	"github.com/arjunsriva/promptgen/tracing"
+	// "github.com/arjunsriva/promptgen/tracing" // Tracing setup is now app's responsibility
+	"github.com/arjunsriva/promptgen/provider" // Required for handleError
 )
 
 func main() {
-	tp, err := tracing.NewTracerProvider()
-	if err != nil {
-		log.Fatalf("Failed to initialize tracer provider: %v", err)
-	}
-	defer func() {
-		if err := tp.Shutdown(context.Background()); err != nil {
-			log.Printf("Failed to shutdown tracer provider: %v", err)
-		}
-	}()
+	// Tracing setup (NewTracerProvider, otel.SetTracerProvider, and tp.Shutdown)
+	// has been removed from this example.
+	// See examples/tracing/main.go for how an application would set up OpenTelemetry.
 
 	ctx := context.Background()
 
 	// Example 1: String type - Joke generator
+	// The operationName is still relevant for library users who might have tracing enabled elsewhere.
 	stringGen, err := promptgen.Create[string, string]("Tell me a {{.}} joke, be creative, unusual", "jokeGenerator")
 	if err != nil {
 		log.Fatalf("Failed to create string generator: %v", err)
@@ -71,10 +67,12 @@ func main() {
 func handleError(err error) {
 	if err != nil {
 		switch {
-		case errors.Is(err, promptgen.ErrRateLimit):
+		case errors.Is(err, promptgen.ErrRateLimit), errors.Is(err, provider.ErrRateLimit):
 			log.Fatal("Rate limit exceeded, please try again later")
-		case errors.Is(err, promptgen.ErrContextLength):
+		case errors.Is(err, promptgen.ErrContextLength), errors.Is(err, provider.ErrContextLength):
 			log.Fatal("Input too long, please reduce the content")
+		case errors.Is(err, promptgen.ErrTimeout):
+			log.Fatalf("Request timed out: %v", err)
 		default:
 			log.Fatalf("Operation failed: %v", err)
 		}
