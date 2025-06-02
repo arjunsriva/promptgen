@@ -29,19 +29,24 @@ import (
 	jsonhandler "github.com/arjunsriva/promptgen/internal/json"
 	"github.com/arjunsriva/promptgen/internal/primitive"
 	"github.com/arjunsriva/promptgen/provider"
+	"github.com/arjunsriva/promptgen/tracing"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // Generator handles prompt generation and response validation
 type Generator[I any, O any] struct {
-	prompt   *template.Template
-	handler  handler.Handler[O]
-	provider provider.Provider
-	hooks    []Hook
-	timeout  time.Duration
+	prompt        *template.Template
+	handler       handler.Handler[O]
+	provider      provider.Provider
+	hooks         []Hook
+	timeout       time.Duration
+	operationName string // Added field
 }
 
-// Create initializes a new Generator with the given prompt template
-func Create[I any, O any](promptTemplate string) (*Generator[I, O], error) {
+// Create initializes a new Generator with the given prompt template.
+// The operationName is used for tracing to identify the business logic.
+func Create[I any, O any](promptTemplate string, operationName string) (*Generator[I, O], error) {
 	// Parse the template
 	tmpl, err := template.New("prompt").Parse(promptTemplate)
 	if err != nil {
@@ -67,10 +72,14 @@ func Create[I any, O any](promptTemplate string) (*Generator[I, O], error) {
 		return nil, fmt.Errorf("failed to create handler: %w", err)
 	}
 
-	return &Generator[I, O]{
-		prompt:  tmpl,
-		handler: h,
-	}, nil
+	g := &Generator[I, O]{
+		prompt:        tmpl,
+		handler:       h,
+		operationName: operationName,
+	}
+	// Note: Options processing for provider would go here if Create accepted them.
+	// For now, ensureDefaultConfig in Run/Stream handles provider initialization.
+	return g, nil
 }
 
 // Add this private method to handle default configuration
@@ -87,27 +96,43 @@ func (g *Generator[I, O]) ensureDefaultConfig() error {
 
 // Run executes the prompt with the given input and returns the validated output
 func (g *Generator[I, O]) Run(ctx context.Context, input I) (O, error) {
-	var output O
+	var output O // Default output
+
+	spanName := g.operationName
+	if spanName == "" {
+		spanName = "promptgen.Run" // Default span name
+	}
+	spanCtx, span := tracing.Tracer.Start(ctx, spanName)
+	defer span.End()
+
+	if g.operationName != "" {
+		span.SetAttributes(attribute.String("promptgen.operation_name", g.operationName))
+	}
 
 	if err := g.ensureDefaultConfig(); err != nil {
-		return output, &Error{
-			Err:     ErrConfiguration,
-			Message: err.Error(),
-			Code:    "config_error",
-		}
+		err = &Error{Err: ErrConfiguration, Message: err.Error(), Code: "config_error"}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return output, err
 	}
 
 	// Apply default timeout if set
+	// Note: The original context `ctx` is used for timeout, then `spanCtx` is passed down.
+	// This means the timeout covers the span's operations.
+	runCtx := spanCtx // Use spanCtx for operations within the span
 	if g.timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, g.timeout)
+		runCtx, cancel = context.WithTimeout(spanCtx, g.timeout) // Use spanCtx here
 		defer cancel()
 	}
 
 	// Execute template
 	var buf bytes.Buffer
 	if err := g.prompt.Execute(&buf, input); err != nil {
-		return output, fmt.Errorf("failed to execute template: %w", err)
+		err = fmt.Errorf("failed to execute template: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return output, err
 	}
 
 	// Wrap prompt with type-specific instructions
@@ -115,70 +140,81 @@ func (g *Generator[I, O]) Run(ctx context.Context, input I) (O, error) {
 
 	// Run before hooks
 	for _, hook := range g.hooks {
-		var err error
-		wrappedPrompt, err = hook.BeforeRequest(ctx, wrappedPrompt)
-		if err != nil {
-			return output, fmt.Errorf("hook error: %w", err)
+		var errHook error
+		// Pass runCtx (which might have timeout) to hooks
+		wrappedPrompt, errHook = hook.BeforeRequest(runCtx, wrappedPrompt)
+		if errHook != nil {
+			errHook = fmt.Errorf("hook error (BeforeRequest): %w", errHook)
+			span.RecordError(errHook)
+			span.SetStatus(codes.Error, errHook.Error())
+			return output, errHook
 		}
 	}
 
 	// Call provider
-	response, err := g.provider.Complete(ctx, wrappedPrompt)
+	// Pass runCtx (which might have timeout and is child of spanCtx) to provider
+	response, err := g.provider.Complete(runCtx, wrappedPrompt)
 
 	// Check for context/timeout errors first
 	if err != nil {
-		switch {
-		case errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded:
+		span.RecordError(err) // Record provider error
+		span.SetStatus(codes.Error, err.Error())
+		// Specific error handling based on provider errors or context errors
+		if runCtx.Err() == context.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded) {
 			return output, ErrTimeout
-		case errors.Is(err, context.Canceled):
-			return output, fmt.Errorf("request canceled: %w", err)
-		case errors.Is(err, provider.ErrRateLimit):
-			return output, ErrRateLimit
-		case errors.Is(err, provider.ErrContextLength):
-			return output, ErrContextLength
-		default:
-			return output, err
 		}
+		if runCtx.Err() == context.Canceled || errors.Is(err, context.Canceled) {
+			return output, fmt.Errorf("request canceled: %w", err)
+		}
+		if errors.Is(err, provider.ErrRateLimit) {
+			return output, ErrRateLimit
+		}
+		if errors.Is(err, provider.ErrContextLength) {
+			return output, ErrContextLength
+		}
+		return output, err // General provider error
 	}
 
-	// Check context after successful response
-	if ctx.Err() != nil {
-		switch ctx.Err() {
-		case context.DeadlineExceeded:
+	// Check context after successful response (e.g. if timeout happened during provider call but provider didn't error)
+	if runCtx.Err() != nil {
+		err = runCtx.Err()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		if err == context.DeadlineExceeded {
 			return output, ErrTimeout
-		case context.Canceled:
-			return output, fmt.Errorf("request canceled: %w", ctx.Err())
-		default:
-			return output, ctx.Err()
 		}
+		return output, fmt.Errorf("request canceled post-provider: %w", err)
 	}
 
 	// after response hooks
 	for _, hook := range g.hooks {
-		var err error
-		response, err = hook.AfterResponse(ctx, response, err)
-		if err != nil {
-			return output, fmt.Errorf("hook error: %w", err)
+		var errHook error
+		// Pass runCtx (which might have timeout) to hooks
+		response, errHook = hook.AfterResponse(runCtx, response, nil) // Passing nil for error as provider call was successful
+		if errHook != nil {
+			errHook = fmt.Errorf("hook error (AfterResponse): %w", errHook)
+			span.RecordError(errHook)
+			span.SetStatus(codes.Error, errHook.Error())
+			return output, errHook
 		}
 	}
 
 	// Parse response
-	output, err = g.handler.Parse(response)
+	parsedOutput, err := g.handler.Parse(response)
 	if err != nil {
-		return output, &Error{
-			Err:     ErrInvalidResponse,
-			Message: fmt.Sprintf("failed to parse response: %v", err),
-			Code:    "parse_failed",
-		}
+		err = &Error{Err: ErrInvalidResponse, Message: fmt.Sprintf("failed to parse response: %v", err), Code: "parse_failed"}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return output, err // output is zero value of O
 	}
+	output = parsedOutput // Assign successfully parsed output
 
 	// Validate output
 	if err := g.handler.Validate(output); err != nil {
-		return output, &Error{
-			Err:     ErrValidation,
-			Message: err.Error(),
-			Code:    "validation_failed",
-		}
+		err = &Error{Err: ErrValidation, Message: err.Error(), Code: "validation_failed"}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return output, err // output here is the parsed but invalid output
 	}
 
 	return output, nil

@@ -34,7 +34,7 @@ func TestStream(t *testing.T) {
 			DelayMs:      10,
 		}
 
-		gen, _ := Create[TestInput, TestOutput]("test")
+		gen, _ := Create[TestInput, TestOutput]("test", "testStreamSuccess")
 		gen.WithProvider(mock)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -68,7 +68,7 @@ func TestStream(t *testing.T) {
 	})
 
 	t.Run("missing provider", func(t *testing.T) {
-		gen, _ := Create[TestInput, TestOutput]("test")
+		gen, _ := Create[TestInput, TestOutput]("test", "testStreamMissingProvider")
 		os.Unsetenv("OPENAI_API_KEY")
 
 		_, err := gen.Stream(context.Background(), TestInput{Message: "test"})
@@ -82,7 +82,7 @@ func TestStream(t *testing.T) {
 			Errors: []error{errors.New("stream error")},
 		}
 
-		gen, _ := Create[TestInput, TestOutput]("test")
+		gen, _ := Create[TestInput, TestOutput]("test", "testStreamProviderError")
 		gen.WithProvider(mock)
 
 		stream, err := gen.Stream(context.Background(), TestInput{Message: "test"})
@@ -116,7 +116,7 @@ func TestStream(t *testing.T) {
 			afterSuffix:  "modified",
 		}
 
-		gen, _ := Create[TestInput, TestOutput]("test")
+		gen, _ := Create[TestInput, TestOutput]("test", "testStreamWithHooks")
 		gen.WithProvider(mock).WithHook(hook)
 
 		stream, err := gen.Stream(context.Background(), TestInput{Message: "test"})
