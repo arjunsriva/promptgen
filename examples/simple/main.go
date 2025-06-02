@@ -24,7 +24,7 @@ func main() {
 	ctx := context.Background()
 
 	// Example 1: String type - Joke generator
-	stringGen, err := promptgen.Create[string, string]("Tell me a {{.}} joke, be creative, unusual")
+	stringGen, err := promptgen.Create[string, string]("Tell me a {{.}} joke, be creative, unusual", "jokeGenerator")
 	if err != nil {
 		log.Fatalf("Failed to create string generator: %v", err)
 	}
@@ -35,7 +35,7 @@ func main() {
 	fmt.Printf("\n1. String Example - %s joke:\n%s\n", theme, joke)
 
 	// Example 2: Integer type - Age guesser
-	intGen, err := promptgen.Create[string, int]("Given the description '{{.}}', guess the person's age")
+	intGen, err := promptgen.Create[string, int]("Given the description '{{.}}', guess the person's age", "ageGuesser")
 	if err != nil {
 		log.Fatalf("Failed to create int generator: %v", err)
 	}
@@ -46,7 +46,7 @@ func main() {
 	fmt.Printf("\n2. Integer Example - Age guess:\nDescription: %s\nEstimated age: %d years\n", description, age)
 
 	// Example 3: Float type - Temperature converter
-	floatGen, err := promptgen.Create[float64, float64]("Convert {{.}} degrees Fahrenheit to Celsius")
+	floatGen, err := promptgen.Create[float64, float64]("Convert {{.}} degrees Fahrenheit to Celsius", "temperatureConverter")
 	if err != nil {
 		log.Fatalf("Failed to create float generator: %v", err)
 	}
@@ -57,7 +57,7 @@ func main() {
 	fmt.Printf("\n3. Float Example - Temperature conversion:\n%.1f°F = %.1f°C\n", fahrenheit, celsius)
 
 	// Example 4: Boolean type - Decision maker
-	boolGen, err := promptgen.Create[string, bool]("Given the scenario '{{.}}', should I do it? Answer with true or false")
+	boolGen, err := promptgen.Create[string, bool]("Given the scenario '{{.}}', should I do it? Answer with true or false", "decisionMaker")
 	if err != nil {
 		log.Fatalf("Failed to create boolean generator: %v", err)
 	}

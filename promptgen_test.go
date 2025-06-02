@@ -23,21 +23,21 @@ type TestOutput struct {
 // Core functionality tests
 func TestCreate(t *testing.T) {
 	t.Run("valid template", func(t *testing.T) {
-		_, err := Create[TestInput, TestOutput]("Hello {{.Message}}")
+		_, err := Create[TestInput, TestOutput]("Hello {{.Message}}", "testOperationValid")
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
 
 	t.Run("invalid template", func(t *testing.T) {
-		_, err := Create[TestInput, TestOutput]("Hello {{.Invalid}}")
+		_, err := Create[TestInput, TestOutput]("Hello {{.Invalid}}", "testOperationInvalid")
 		if err == nil {
 			t.Error("expected error for invalid template")
 		}
 	})
 
 	t.Run("string type", func(t *testing.T) {
-		_, err := Create[string, string]("Tell me a {{.}} joke")
+		_, err := Create[string, string]("Tell me a {{.}} joke", "testOperationString")
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -46,7 +46,7 @@ func TestCreate(t *testing.T) {
 
 func TestTemplateExecution(t *testing.T) {
 	template := "Hello {{.Message}}"
-	generator, err := Create[TestInput, TestOutput](template)
+	generator, err := Create[TestInput, TestOutput](template, "testOperationTemplateExec")
 	if err != nil {
 		t.Fatalf("failed to create generator: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestGeneratorWithProvider(t *testing.T) {
 	}
 
 	t.Run("successful response", func(t *testing.T) {
-		gen, _ := Create[TestInput, TestOutput]("Hello {{.Message}}")
+		gen, _ := Create[TestInput, TestOutput]("Hello {{.Message}}", "testProviderSuccess")
 		gen.WithProvider(mockProvider)
 
 		result, err := gen.Run(context.Background(), TestInput{Message: "test"})
@@ -88,7 +88,7 @@ func TestGeneratorWithProvider(t *testing.T) {
 
 	t.Run("string response", func(t *testing.T) {
 		mockProvider.Response = "Hello world"
-		gen, _ := Create[string, string]("Say {{.}}")
+		gen, _ := Create[string, string]("Say {{.}}", "testProviderString")
 		gen.WithProvider(mockProvider)
 
 		result, err := gen.Run(context.Background(), "hello")
@@ -102,7 +102,7 @@ func TestGeneratorWithProvider(t *testing.T) {
 
 	t.Run("provider error", func(t *testing.T) {
 		mockProvider.Errors = []error{provider.ErrRateLimit}
-		gen, _ := Create[TestInput, TestOutput]("Hello {{.Message}}")
+		gen, _ := Create[TestInput, TestOutput]("Hello {{.Message}}", "testProviderError")
 		gen.WithProvider(mockProvider)
 
 		_, err := gen.Run(context.Background(), TestInput{Message: "test"})
@@ -113,7 +113,7 @@ func TestGeneratorWithProvider(t *testing.T) {
 }
 
 func TestConcurrentUsage(t *testing.T) {
-	gen, err := Create[TestInput, TestOutput]("test")
+	gen, err := Create[TestInput, TestOutput]("test", "testConcurrent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestTimeout(t *testing.T) {
 		DelayMs:  100,
 	}
 
-	gen, _ := Create[TestInput, TestOutput]("Hello {{.Message}}")
+	gen, _ := Create[TestInput, TestOutput]("Hello {{.Message}}", "testTimeout")
 	gen.WithProvider(slowProvider).WithTimeout(50 * time.Millisecond)
 
 	_, err := gen.Run(context.Background(), TestInput{Message: "test"})
@@ -158,7 +158,7 @@ func TestTimeout(t *testing.T) {
 
 func TestEnsureDefaultConfig(t *testing.T) {
 	t.Run("missing api key", func(t *testing.T) {
-		gen, _ := Create[TestInput, TestOutput]("test")
+		gen, _ := Create[TestInput, TestOutput]("test", "testConfigMissingKey")
 		os.Unsetenv("OPENAI_API_KEY")
 
 		err := gen.ensureDefaultConfig()
@@ -168,7 +168,7 @@ func TestEnsureDefaultConfig(t *testing.T) {
 	})
 
 	t.Run("with api key", func(t *testing.T) {
-		gen, _ := Create[TestInput, TestOutput]("test")
+		gen, _ := Create[TestInput, TestOutput]("test", "testConfigWithKey")
 		os.Setenv("OPENAI_API_KEY", "test-key")
 		defer os.Unsetenv("OPENAI_API_KEY")
 
@@ -183,7 +183,7 @@ func TestEnsureDefaultConfig(t *testing.T) {
 	})
 
 	t.Run("custom provider preserved", func(t *testing.T) {
-		gen, _ := Create[TestInput, TestOutput]("test")
+		gen, _ := Create[TestInput, TestOutput]("test", "testConfigCustomProvider")
 		mockProvider := &MockProvider{}
 		gen.WithProvider(mockProvider)
 

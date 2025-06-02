@@ -16,7 +16,7 @@ func TestHooks(t *testing.T) {
 		beforeResponse: "Modified prompt",
 	}
 
-	gen, _ := Create[TestInput, TestOutput]("Hello {{.Message}}")
+	gen, _ := Create[TestInput, TestOutput]("Hello {{.Message}}", "testHooks")
 	gen.WithProvider(mockProvider).WithHook(hook)
 
 	_, err := gen.Run(context.Background(), TestInput{Message: "test"})

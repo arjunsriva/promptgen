@@ -29,15 +29,15 @@ Work directly with Go's basic types:
 
 ```go
 // String generation
-stringGen, _ := promptgen.Create[string, string]("Tell me a {{.}} joke")
+stringGen, _ := promptgen.Create[string, string]("Tell me a {{.}} joke", "jokeGenerator")
 joke, _ := stringGen.Run(ctx, "Dad")
 
 // Integer estimation
-intGen, _ := promptgen.Create[string, int]("Guess the age: {{.}}")
+intGen, _ := promptgen.Create[string, int]("Guess the age: {{.}}", "ageGuesser")
 age, _ := intGen.Run(ctx, "college professor with grey hair")
 
 // Float conversion
-floatGen, _ := promptgen.Create[float64, float64]("Convert {{.}} Fahrenheit to Celsius")
+floatGen, _ := promptgen.Create[float64, float64]("Convert {{.}} Fahrenheit to Celsius", "tempConverter")
 celsius, _ := floatGen.Run(ctx, 98.6)
 ```
 
@@ -61,7 +61,7 @@ generator, _ := promptgen.Create[ProductInput, ProductCopy](`
     Features:
     {{range .Features}}- {{.}}
     {{end}}
-`)
+`, "productCopyGenerator")
 
 result, err := generator.Run(ctx, ProductInput{
     Name: "Ergonomic Chair",
@@ -74,7 +74,9 @@ result, err := generator.Run(ctx, ProductInput{
 Process responses in real-time using Go channels:
 
 ```go
-stream, _ := generator.Stream(ctx, input)
+// Assuming generator is created with an operationName, e.g.:
+// generator, _ := promptgen.Create[InputType, OutputType]("Streaming prompt {{.}}", "myStreamer")
+stream, _ := generator.Stream(ctx, input) // Stream method will also be instrumented
 
 for {
     select {
@@ -98,10 +100,10 @@ Build complex workflows by chaining operations:
 // Define chain of operations
 var (
     classifyQuery, _ = promptgen.Create[Query, Classification](
-        "Classify this query: {{.Text}}")
+        "Classify this query: {{.Text}}", "queryClassifier")
 
     generateResponse, _ = promptgen.Create[Classification, Response](
-        "Generate response for {{.Category}} query")
+        "Generate response for {{.Category}} query", "responseGenerator")
 )
 
 // Execute chain
@@ -128,6 +130,7 @@ func (h *LoggingHook) AfterResponse(ctx context.Context, response string, err er
     return response, err
 }
 
+// Assuming generator is created with an operationName
 generator.WithHook(&LoggingHook{logger: log.Default()})
 ```
 
@@ -136,6 +139,7 @@ generator.WithHook(&LoggingHook{logger: log.Default()})
 Switch between providers or implement your own:
 
 ```go
+// Assuming generator is created with an operationName
 // Use OpenAI
 generator.WithProvider(provider.NewOpenAI(provider.OpenAIConfig{
     Model: "gpt-4",
@@ -184,7 +188,7 @@ Use the mock provider for reliable testing:
 mockProvider := &provider.MockProvider{
     Response: `{"title": "Test Title", "description": "Test Description"}`,
 }
-
+// Assuming generator is created with an operationName
 generator.WithProvider(mockProvider)
 result, err := generator.Run(ctx, input)
 ```
@@ -200,7 +204,7 @@ Apache 2.0 - See [LICENSE](./LICENSE) for details.
 ## OpenTelemetry Tracing
 
 This project uses OpenTelemetry to provide tracing for requests made to AI providers.
-Currently, only the OpenAI provider is instrumented.
+Currently, only the OpenAI provider is instrumented for provider-level spans. The main `Run` method in `promptgen.go` is also instrumented.
 
 **Enabling Tracing:**
 - Tracing is initialized automatically if you use the `tracing.NewTracerProvider()` function from the `github.com/arjunsriva/promptgen/tracing` package at the start of your application.
@@ -210,8 +214,17 @@ Currently, only the OpenAI provider is instrumented.
 - By default, a `stdout` exporter is used, which prints traces to the console. This is useful for development and debugging.
 - To use other exporters (e.g., Jaeger, Zipkin, OTLP), you will need to modify the `tracing/tracing.go` file to initialize your preferred exporter.
 
-**Collected Attributes:**
-- Spans for provider calls (e.g., `OpenAI.Complete`, `OpenAI.Stream`) will include the following attributes:
+**Span Creation and Attributes:**
+
+When creating a generator, you can provide an `operationName` string, for example:
+`generator, _ := promptgen.Create[InputType, OutputType]("Your prompt {{.}}", "yourCustomOperationName")`
+
+This `operationName` is used to create a parent span for the entire `Run` operation (and eventually the `Stream` operation once it's instrumented). This helps in contextualizing the specific business logic being executed. If no `operationName` is provided to `Create`, a default span name like "promptgen.Run" will be used for the operation.
+
+The parent operation span (e.g., "yourCustomOperationName" or "promptgen.Run") will have the following attribute if a custom operation name was provided:
+- `promptgen.operation_name`: The custom name given to the generator operation (e.g., "yourCustomOperationName").
+
+Provider-specific spans (e.g., `OpenAI.Complete`, `OpenAI.Stream`) are created by the provider's methods and will be children of this main operation span if the context is passed correctly. These provider-level child spans will include attributes like:
     - `llm.provider`: The name of the provider (e.g., "OpenAI").
     - `llm.model_name`: The model being used.
     - `llm.temperature`: The configured temperature.
